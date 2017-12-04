@@ -1,32 +1,43 @@
 require 'rails_helper'
 
-describe "issue table" do
+describe 'issue table' do
 
-  describe "toolbar", js: true do
+  describe 'toolbar', js: true do
     subject { page }
+
+    let(:items) {
+      issues = []
+      (::Configuration.max_deleted_inline + 1).times do |i|
+        issues << create(:issue, text: "#[Title]#\r\ntest#{i}\r\n\r\n#[Description]#\r\nnone#{i}\r\n")
+      end
+      issues
+    }
 
     before do
       login_to_project_as_user
-
-      create(:issue, text: "#[Title]#\r\ntest1\r\n\r\n#[Description]#\r\nnone1\r\n")
-      create(:issue, text: "#[Title]#\r\ntest2\r\n\r\n#[Description]#\r\nnone2\r\n")
-
+      @issues = items
       visit issues_path
     end
 
-    context "when Select All is clicked" do
-      before do
-        find('.js-select-all-issues').click
+    it_behaves_like 'an index table toolbar'
+
+    context 'when clicking issues' do
+      it 'displays merge button if more than 1 issues clicked' do
+        check "checkbox_issue_#{@issues.first.id}"
+        expect(page).to have_selector('#merge-selected', visible: false)
+        check "checkbox_issue_#{@issues.last.id}"
+        expect(page).to have_selector('#merge-selected', visible: true)
       end
 
-      it "selects all issues" do
-        all('input[type=checkbox].js-multicheck').each do |el|
-          expect(el['checked']).to be true
-        end
-      end
-
-      it "shows the issue actions bar" do
-        expect(find('.js-issue-actions')).to be_visible
+      it 'resets toolbar after applying tags' do
+        issue = @issues.first
+        check "checkbox_issue_#{issue.id}"
+        expect(page).to have_css('.js-items-table-actions')
+        find('#tag-selected').click
+        find('a[data-tag="!6baed6_low"]').click
+        expect(page).to_not have_css('.js-items-table-actions')
+        issue.reload
+        expect(issue.tags.first.name).to eq '!6baed6_low'
       end
     end
   end

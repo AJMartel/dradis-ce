@@ -1,10 +1,11 @@
 class IssuesController < ProjectScopedController
-  before_action :find_issuelib
-  before_action :find_issues, except: :destroy
+  include ContentFromTemplate
 
-  before_action :find_or_initialize_issue, except: [:import, :index]
+  before_action :find_issuelib
+  before_action :find_issues, except: [:destroy, :merging]
+
+  before_action :find_or_initialize_issue, except: [:import, :index, :merging]
   before_action :find_or_initialize_tags, except: [:destroy]
-  before_action :find_note_template, only: [:new]
 
   def index
     @columns = @issues.map(&:fields).map(&:keys).uniq.flatten | ['Title', 'Tags', 'Affected', 'Created', 'Created by', 'Updated']
@@ -15,12 +16,14 @@ class IssuesController < ProjectScopedController
 
     # We can't use the existing @nodes variable as it only contains root-level
     # nodes, and we need the auto-complete to have the full list.
-    @nodes_for_add_evidence = Node.order(:label)
+    @nodes_for_add_evidence = Node.user_nodes.order(:label)
 
     load_conflicting_revisions(@issue)
   end
 
   def new
+    # See ContentFromTemplate concern
+    @issue.text = template_content if params[:template]
   end
 
   def create
@@ -45,7 +48,7 @@ class IssuesController < ProjectScopedController
 
         format.html { redirect_to @issue, notice: 'Issue added.' }
       else
-        format.html { render 'new', alert: "Issue couldn't be added." }
+        format.html { render 'new', alert: 'Issue couldn\'t be added.' }
       end
       format.js
     end
@@ -64,7 +67,7 @@ class IssuesController < ProjectScopedController
         track_updated(@issue)
         format.html { redirect_to @issue, notice: 'Issue updated' }
       else
-        format.html { render "edit" }
+        format.html { render 'edit' }
       end
       format.js
       format.json
@@ -84,6 +87,32 @@ class IssuesController < ProjectScopedController
     end
   end
 
+  def multiple_destroy
+    @issues = Issue.where(id: params[:ids])
+
+    # cache these values
+    @count = @issues.count
+    @max_deleted_inline = ::Configuration.max_deleted_inline
+
+    if @count > 0
+      @job_logger = Log.new
+      job_params = {
+        author_email: current_user.email,
+        ids: @issues.map(&:id),
+        klass: 'Issue',
+        uid: @job_logger.uid
+      }
+
+      if @count > @max_deleted_inline
+        @job_logger.write 'Enqueueing multiple delete job to start in the background.'
+        job = MultiDestroyJob.perform_later(job_params)
+        @job_logger.write "Job id is #{job.job_id}."
+      elsif @count > 0
+        @job_logger.write 'Performing multiple delete job inline.'
+        MultiDestroyJob.perform_now(job_params)
+      end
+    end
+  end
 
   def import
     importer = IssueImporter.new(params)
@@ -95,6 +124,7 @@ class IssuesController < ProjectScopedController
   end
 
   private
+
   def find_issues
     # We need a transaction because multiple DELETE calls can be issued from
     # index and a TOCTOR can appear between the Note read and the Issue.find
@@ -105,18 +135,6 @@ class IssuesController < ProjectScopedController
 
   def find_issuelib
     @issuelib = Node.issue_library
-  end
-
-  # if a :template param is passed, we try match it against the available
-  # NoteTemplates to pre-populate the Issue's text in the :new action
-  def find_note_template
-    if params.key?(:template)
-      begin
-        @issue.text = NoteTemplate.find(params[:template]).content
-      rescue
-        # invalid template, no need to do anything about it
-      end
-    end
   end
 
   # Once a valid @issuelib is set by the previous filter we look for the Issue we

@@ -7,20 +7,21 @@
 #   * jQuery.fileUpload  - handles attachment uploads (gem: jquery-fileupload-rails)
 #   * jQuery.Textile     - handles the note editor (/vendor/)
 
-jQuery ->
+document.addEventListener "turbolinks:load", ->
   # --------------------------------------------------- Standard jQuery plugins
   # Activate jQuery.fileUpload
   $('.jquery-upload').fileupload
     dropZone: $('#drop-zone')
     destroy: (e, data) ->
       if confirm('Are you sure?')
-        $.blueimp.fileupload.prototype.options.destroy.call(this, e, data);
+        $.blueimp.fileupload.prototype.options.destroy.call(this, e, data)
 
     paste: (e, data)->
       $.each data.files, (index, file) ->
-        if (!file.name?)
-          file.name = prompt('Please provide a filename for the pasted image', 'screenshot-XX.png') || 'unnamed.png'
-
+        filename = prompt('Please provide a filename for the pasted image', 'screenshot-XX.png') || 'unnamed.png'
+        # Clone file object, edit, then reapply to the data object
+        newFile = new File [file], filename, { type: file.type }
+        data.files[index] = newFile
 
   # Initialize clipboard.js:
   clipboard = new Clipboard('.js-attachment-url-copy')
@@ -93,8 +94,11 @@ jQuery ->
       $modal.css('margin-left', '-40%')
 
       title = switch term
+        when 'boards' then '[<span>Dradis Pro feature</span>] Advanced boards and task assignment'
         when 'training-course' then 'Dradis Training Course'
+        when 'try-pro' then 'Upgrade to Dradis Pro'
         when 'word-reports' then '[<span>Dradis Pro feature</span>] Custom Word reports'
+        when 'excel-reports' then '[<span>Dradis Pro feature</span>] Custom Excel reports'
 
       $modal.find('.modal-header h3').html(title)
     else
@@ -142,7 +146,7 @@ jQuery ->
 
   # Disable form buttons after submitting them.
   $('form').submit (ev)->
-    $('input[type=submit]', this).attr('disabled', 'disabled').val('Processing...');
+    $('input[type=submit]', this).attr('disabled', 'disabled').val('Processing...')
 
 
   # Search form
@@ -162,11 +166,3 @@ jQuery ->
 
   $('.navbar .btn-search').on 'click', ->
     $('.form-search').submit()
-
-  # Table filtering
-  $('.js-table-filter').on 'keyup', ->
-    rex = new RegExp($(this).val(), 'i')
-    $('tbody tr').hide();
-    $('tbody tr').filter( ->
-      rex.test($(this).text());
-    ).show();
